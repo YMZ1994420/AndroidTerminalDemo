@@ -17,9 +17,9 @@ static int throw_runtime_exception(JNIEnv *env, char const *message) {
     return -1;
 }
 
-JNIEXPORT jint JNICALL Java_com_ymz_terminal_Jni_createSubprocess
-        (JNIEnv *jniEnv, jclass jclass, jstring cmd, jstring cwd, jobjectArray args, jobjectArray enVars,
-         jintArray subprocessId) {
+static jint
+createSubProcess(JNIEnv *jniEnv, jclass jclass, const char file[], const char cwd[], char *args[], char *envars[],
+                 pid_t &subprocessID) {
     //打开ptmx获得独立的fd
     auto ptmx = open("/dev/ptmx", O_RDWR | O_CLOEXEC);
     if (ptmx < 0) return throw_runtime_exception(jniEnv, "打开ptmx文件失败");
@@ -31,18 +31,14 @@ JNIEXPORT jint JNICALL Java_com_ymz_terminal_Jni_createSubprocess
     }
     LOG("打开fd成功");
     //fork子进程
-    jboolean isCopy;
     auto pid = fork();
     if (pid < 0) {
         return throw_runtime_exception(jniEnv, "创建子进程失败");
     } else if (pid > 0) {
         LOG("子进程创建成功");
         //返回ptmx与子进程的id
-        int *pProcId = (int *) jniEnv->GetPrimitiveArrayCritical(subprocessId, &isCopy);
-        if (pProcId) {
-            *pProcId = pid;
-            jniEnv->ReleasePrimitiveArrayCritical(subprocessId, pProcId, 0);
-        }
+        LOG("取得的processId: %d", pid);
+        subprocessID = pid;
         return ptmx;
     } else {
         close(ptmx);
@@ -59,25 +55,37 @@ JNIEXPORT jint JNICALL Java_com_ymz_terminal_Jni_createSubprocess
         dup2(pts, 0);
         dup2(pts, 1);
         dup2(pts, 2);
-        LOG("绑定输入输出成功");
-//        auto bash = jniEnv->GetStringUTFChars(cmd, &isCopy);
-//        auto length = jniEnv->GetArrayLength(args);
-//        char *argsC[length];
-//        for (int i = 0; i < length; i++) {
-//            strcpy(argsC[i], (const char *) (jniEnv->GetObjectArrayElement(args, length)));
-//        }
-        //一般而言，bash为"system/bin/sh",args为"-i"
-        LOG("准备创建BASH");
-        char * argsC[2];
-        argsC[0] = const_cast<char *>("-i");
-        argsC[1] = nullptr;
-        execvp("/system/bin/sh", argsC);
-        char* error_message;
-        if (asprintf(&error_message, "创建的命令为: exec(\"%s\")", cmd) == -1) error_message = "exec()";
+        LOG("执行EXEC,参数：文件： %s，参数: %s", file, args[0]);
+        execvp(file, args);
+        char *error_message;
+        if (asprintf(&error_message, "exec(\"%s\")", file) == -1) error_message = "exec()";
         perror(error_message);
         _exit(1);
-        LOG("BASH创建失败");
     }
+}
+
+//todo 从javaObject中获得正确的C类型的方法.目前填写的参数基本没用上
+JNIEXPORT jint JNICALL Java_com_ymz_terminal_Jni_createSubprocess
+        (JNIEnv *jniEnv, jclass jclass, jstring file, jstring cwd, jobjectArray args, jobjectArray enVars,
+         jintArray subprocessId) {
+    //转换JNI基础类型及String为C++类型,基础类型最好直接使用，对象类型通过jniEnv进行转换
+    jboolean isCopy; //告知生成的对象是产生的内存拷贝还是与原对象的指针。JVM尽可能返回一个直接的指针，否则返回一个拷贝。不要对直接指针进行修改，如果不需要修改可以直接传入空指针。
+    auto c_file = jniEnv->GetStringUTFChars(file, &isCopy);
+    auto c_cwd = jniEnv->GetStringUTFChars(cwd, nullptr);
+    pid_t pid;
+    //转换JNI的object数组需要遍历数组并复制成员。
+
+    //使用C函数执行代码。
+    createSubProcess(jniEnv, jclass, c_file, c_cwd, nullptr, nullptr, pid);
+    //要想对java提供out-in类型的数组赋值，需要使用获取引用的critical方法。注意critical方法的get/release之间不允许调用任何jniEnv的方法。
+//    auto c_subProcess = static_cast<jint *>(jniEnv->GetPrimitiveArrayCritical(subprocessId, nullptr));
+//    if (c_subProcess) {
+//        c_subProcess[0] = pid;
+//    }
+//    jniEnv->ReleasePrimitiveArrayCritical(subprocessId,c_subProcess,JNI_ABORT);
+    //使用之后请释放生成的copy或引用以便JVM进行回收
+//    jniEnv->ReleaseStringUTFChars(file, c_file);//子进程可能此时还未完成，如果是拷贝，不应该这个时候进行销毁
+//    jniEnv->ReleaseStringUTFChars(cwd, c_cwd);//子进程可能此时还未完成，如果是拷贝，不应该这个时候进行销毁
 }
 
 JNIEXPORT void JNICALL Java_com_ymz_terminal_Jni_close

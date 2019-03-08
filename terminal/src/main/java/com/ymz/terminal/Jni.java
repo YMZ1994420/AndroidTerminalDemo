@@ -1,5 +1,7 @@
 package com.ymz.terminal;
 
+import org.jetbrains.annotations.NotNull;
+
 /**
  * Create by YMZ
  * 2019-3-7
@@ -24,7 +26,7 @@ public class Jni {
      * @return the file descriptor resulting from opening /dev/ptmx master device. The sub process will have opened the
      * slave device counterpart (/dev/pts/$N) and have it as stdint, stdout and stderr.
      */
-    public static native int createSubprocess(String cmd, String cwd, String[] args, String[] envVars, int[] processId);
+    public static native int createSubprocess(@NotNull String cmd, @NotNull String cwd, String[] args, String[] envVars, int[] processId);
 
     /** Close a file descriptor through the close(2) system call. */
     public static native void close(int fileDescriptor);

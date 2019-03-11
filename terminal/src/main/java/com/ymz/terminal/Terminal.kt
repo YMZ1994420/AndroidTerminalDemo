@@ -22,7 +22,7 @@ class Terminal(private val onShellOut: (String) -> Unit) {
 
     init {
         val pidOut = intArrayOf(0)
-        ptmFd = Jni.createSubprocess("/system/bin/sh", "", listOf("-i").toTypedArray(), null, pidOut).toFileDescriptor()
+        ptmFd = Jni.createSubprocess("/system/bin/sh", "", listOf("-i").toTypedArray(), listOf("bin").toTypedArray(), pidOut).toFileDescriptor()
         pid = pidOut[0]
         Thread({
             val buffer = ByteArray(4096)

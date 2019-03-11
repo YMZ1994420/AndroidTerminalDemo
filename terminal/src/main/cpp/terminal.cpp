@@ -55,7 +55,7 @@ createSubProcess(JNIEnv *jniEnv, jclass jclass, const char file[], const char cw
         dup2(pts, 0);
         dup2(pts, 1);
         dup2(pts, 2);
-        LOG("执行EXEC,参数：文件： %s，参数: %s", file, args[0]);
+        LOG("执行EXEC,参数：文件： %s，参数", file);
         execvp(file, args);
         char *error_message;
         if (asprintf(&error_message, "exec(\"%s\")", file) == -1) error_message = "exec()";
@@ -78,11 +78,11 @@ JNIEXPORT jint JNICALL Java_com_ymz_terminal_Jni_createSubprocess
     //使用C函数执行代码。
     createSubProcess(jniEnv, jclass, c_file, c_cwd, nullptr, nullptr, pid);
     //要想对java提供out-in类型的数组赋值，需要使用获取引用的critical方法。注意critical方法的get/release之间不允许调用任何jniEnv的方法。
-//    auto c_subProcess = static_cast<jint *>(jniEnv->GetPrimitiveArrayCritical(subprocessId, nullptr));
-//    if (c_subProcess) {
-//        c_subProcess[0] = pid;
-//    }
-//    jniEnv->ReleasePrimitiveArrayCritical(subprocessId,c_subProcess,JNI_ABORT);
+    auto c_subProcess = static_cast<jint *>(jniEnv->GetPrimitiveArrayCritical(subprocessId, nullptr));
+    if (c_subProcess) {
+        c_subProcess[0] = pid;
+    }
+    jniEnv->ReleasePrimitiveArrayCritical(subprocessId,c_subProcess,JNI_ABORT);
     //使用之后请释放生成的copy或引用以便JVM进行回收
 //    jniEnv->ReleaseStringUTFChars(file, c_file);//子进程可能此时还未完成，如果是拷贝，不应该这个时候进行销毁
 //    jniEnv->ReleaseStringUTFChars(cwd, c_cwd);//子进程可能此时还未完成，如果是拷贝，不应该这个时候进行销毁

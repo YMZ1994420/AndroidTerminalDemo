@@ -59,7 +59,7 @@ createSubProcess(JNIEnv *jniEnv, jclass jclass, char const* file, const char cwd
         LOG("执行EXEC,参数：文件： %s，参数%s", file,args[0]);
         execvp(file, args);
         char *error_message;
-        if (asprintf(&error_message, "exec(\"%s\")", file) == -1) error_message = "exec()";
+        if (asprintf(&error_message, "exec(\"%s\")", file) == -1) error_message = const_cast<char *>("exec()");
         perror(error_message);
         _exit(1);
     }

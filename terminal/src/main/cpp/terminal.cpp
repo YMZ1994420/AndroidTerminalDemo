@@ -18,7 +18,8 @@ static int throw_runtime_exception(JNIEnv *env, char const *message) {
 }
 
 static jint
-createSubProcess(JNIEnv *jniEnv, jclass jclass, const char file[], const char cwd[], char *args[], char *envars[],
+createSubProcess(JNIEnv *jniEnv, jclass jclass, char const* file, const char cwd[], char* const args[],
+                 char *const envars[],
                  pid_t &subprocessID) {
     //打开ptmx获得独立的fd
     auto ptmx = open("/dev/ptmx", O_RDWR | O_CLOEXEC);
@@ -55,7 +56,7 @@ createSubProcess(JNIEnv *jniEnv, jclass jclass, const char file[], const char cw
         dup2(pts, 0);
         dup2(pts, 1);
         dup2(pts, 2);
-        LOG("执行EXEC,参数：文件： %s，参数", file);
+        LOG("执行EXEC,参数：文件： %s，参数%s", file,args[0]);
         execvp(file, args);
         char *error_message;
         if (asprintf(&error_message, "exec(\"%s\")", file) == -1) error_message = "exec()";
@@ -64,7 +65,6 @@ createSubProcess(JNIEnv *jniEnv, jclass jclass, const char file[], const char cw
     }
 }
 
-//todo 从javaObject中获得正确的C类型的方法.目前填写的参数基本没用上
 JNIEXPORT jint JNICALL Java_com_ymz_terminal_Jni_createSubprocess
         (JNIEnv *jniEnv, jclass jclass, jstring file, jstring cwd, jobjectArray args, jobjectArray enVars,
          jintArray subprocessId) {
@@ -74,18 +74,45 @@ JNIEXPORT jint JNICALL Java_com_ymz_terminal_Jni_createSubprocess
     auto c_cwd = jniEnv->GetStringUTFChars(cwd, nullptr);
     pid_t pid;
     //转换JNI的object数组需要遍历数组并复制成员。
-
-    //使用C函数执行代码。
-    createSubProcess(jniEnv, jclass, c_file, c_cwd, nullptr, nullptr, pid);
+    //转换args
+    jsize arg_legth = args ? jniEnv->GetArrayLength(args) : 0;
+    const char *c_args[arg_legth + 1];//这里是把c_args存到内存栈里面,没人会传一个数量很多的args吧
+    if (arg_legth > 0) {
+        //创建args,注意要在最后添加一位空指针。因为exec的变长参数以空指针为结束标记
+        for (auto i = 0; i < arg_legth; i++) {
+            auto element = static_cast<jstring>(jniEnv->GetObjectArrayElement(args, i));
+            auto argUtf = jniEnv->GetStringUTFChars(element, nullptr);
+            if (!argUtf) throw_runtime_exception(jniEnv, "获取arg失败");
+            c_args[i] = strdup(argUtf);
+        }
+        c_args[arg_legth] = nullptr;
+    }
+    //转换env
+    jsize env_legth = enVars ? jniEnv->GetArrayLength(enVars) : 0;
+    const char *c_env[env_legth + 1];
+    if (env_legth > 0) {
+        for (auto i = 0; i < env_legth; i++) {
+            auto element = static_cast<jstring>(jniEnv->GetObjectArrayElement(enVars, i));
+            auto envUtf = jniEnv->GetStringUTFChars(element, nullptr);
+            if (!envUtf) throw_runtime_exception(jniEnv, "获取arg失败");
+            c_env[i] = strdup(envUtf);
+        }
+        c_env[env_legth] = nullptr;
+    }
+    //使用C函数执行代码
+    auto ptmx = createSubProcess(jniEnv, jclass, c_file, c_cwd, (char*const*)c_args, (char*const*)c_env, pid);
+    //释放资源.createSubProcess函数中使用了fork,但是仍旧不影响释放内存的逻辑，因为子进程复制了父进程的所有数据，父进程即便释放了内存，子进程中copy的来的内存数据不受影响。
+    jniEnv->ReleaseStringUTFChars(file,c_file);
+    jniEnv->ReleaseStringUTFChars(cwd, c_cwd);
+    //返回修改后的pid
     //要想对java提供out-in类型的数组赋值，需要使用获取引用的critical方法。注意critical方法的get/release之间不允许调用任何jniEnv的方法。
     auto c_subProcess = static_cast<jint *>(jniEnv->GetPrimitiveArrayCritical(subprocessId, nullptr));
     if (c_subProcess) {
         c_subProcess[0] = pid;
     }
-    jniEnv->ReleasePrimitiveArrayCritical(subprocessId,c_subProcess,JNI_ABORT);
-    //使用之后请释放生成的copy或引用以便JVM进行回收
-//    jniEnv->ReleaseStringUTFChars(file, c_file);//子进程可能此时还未完成，如果是拷贝，不应该这个时候进行销毁
-//    jniEnv->ReleaseStringUTFChars(cwd, c_cwd);//子进程可能此时还未完成，如果是拷贝，不应该这个时候进行销毁
+    jniEnv->ReleasePrimitiveArrayCritical(subprocessId, c_subProcess, JNI_ABORT);
+    //返回fd
+    return ptmx;
 }
 
 JNIEXPORT void JNICALL Java_com_ymz_terminal_Jni_close
